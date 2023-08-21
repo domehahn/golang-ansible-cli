@@ -15,12 +15,16 @@ import (
 )
 
 var ansibleProject = "ansible-playground"
+var createPathParameter string
 
 const (
 	CliAnsibleDirectory   = "cli.ansible.directory"
-	CliAnsibleVars        = "cli.ansible.vars"
-	CliAnsiblePlaybook    = "cli.ansible.playbook"
+	CliAnsibleGroupVars   = "cli.ansible.group_vars"
+	CliAnsibleHostVars    = "cli.ansible.host_vars"
 	CliAnsibleRolesCommon = "cli.ansible.roles.common"
+	CliAnsiblePlaybooks   = "cli.ansible.playbooks"
+	CliAnsibleInventories = "cli.ansible.inventories"
+	CliAnsibleFiles       = "cli.ansible.files"
 )
 
 type TemplateData struct {
@@ -29,9 +33,11 @@ type TemplateData struct {
 
 // createCmd represents the create command
 var createCmd = &cobra.Command{
-	Use:   "create",
-	Short: "Create Ansible Structure",
-	Long:  `Create Ansible basic structure within the given path.`,
+	Use:     "create",
+	Aliases: []string{"create"},
+	Short:   "Create Ansible Structure",
+	Long:    `Create Ansible basic structure within the given path.`,
+	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
 		ansiblePath, err := environment.ViperGetEnvVariable(CliAnsibleDirectory)
 
@@ -39,8 +45,8 @@ var createCmd = &cobra.Command{
 			log.Fatal("Error")
 		}
 
-		if len(args) >= 1 && args[0] != "" {
-			ansibleProject = args[0]
+		if createPathParameter != "" {
+			ansibleProject = createPathParameter
 		}
 
 		if err := os.Mkdir(ansiblePath+ansibleProject, os.ModePerm); err != nil {
@@ -49,9 +55,37 @@ var createCmd = &cobra.Command{
 
 		ansibleProjectPath := ansiblePath + ansibleProject
 
-		addVarFiles(ansibleProjectPath)
+		groupVars, err := environment.ViperGetEnvVariableSlice(CliAnsibleGroupVars)
+		if err != nil {
+			log.Fatal("Error")
+		}
+		addVarFiles(ansibleProjectPath, "group_vars", groupVars)
 
-		addPlaybook(ansibleProjectPath)
+		hostVars, err := environment.ViperGetEnvVariableSlice(CliAnsibleHostVars)
+		if err != nil {
+			log.Fatal("Error")
+		}
+		addVarFiles(ansibleProjectPath, "host_vars", hostVars)
+
+		addFiles(ansibleProjectPath)
+
+		addPlaybooks(ansibleProjectPath)
+
+		addInventory(ansibleProjectPath)
+
+		filePath := filepath.Join(ansibleProjectPath, "ansible.cfg")
+
+		file, err := os.Create(filePath)
+		if err != nil {
+			log.Fatal("Error")
+		}
+
+		defer func(file *os.File) {
+			err := file.Close()
+			if err != nil {
+				log.Fatal("Error")
+			}
+		}(file)
 
 		if err := os.Mkdir(ansibleProjectPath+"/roles", os.ModePerm); err != nil {
 			log.Fatal(err)
@@ -77,15 +111,36 @@ var createCmd = &cobra.Command{
 	},
 }
 
-func addPlaybook(ansibleProjectPath string) {
-	playbooks, err := environment.ViperGetEnvVariableSlice(CliAnsiblePlaybook)
+func addFiles(ansibleProjectPath string) {
+	files, err := environment.ViperGetEnvVariableSlice(CliAnsibleFiles)
+	if err != nil {
+		log.Fatal("Error")
+	}
+
+	if err := os.Mkdir(ansibleProjectPath+"/files", os.ModePerm); err != nil {
+		log.Fatal(err)
+	}
+
+	for _, file := range files {
+		if err := os.Mkdir(ansibleProjectPath+"/files/"+file, os.ModePerm); err != nil {
+			log.Fatal(err)
+		}
+	}
+}
+
+func addPlaybooks(ansibleProjectPath string) {
+	playbooks, err := environment.ViperGetEnvVariableSlice(CliAnsiblePlaybooks)
 
 	if err != nil {
 		log.Fatal("Error")
 	}
 
+	if err := os.Mkdir(ansibleProjectPath+"/playbooks", os.ModePerm); err != nil {
+		log.Fatal(err)
+	}
+
 	for _, playbook := range playbooks {
-		filePath := filepath.Join(ansibleProjectPath, playbook+".yml")
+		filePath := filepath.Join(ansibleProjectPath+"/playbooks", playbook+".yml")
 
 		file, err := os.Create(filePath)
 		if err != nil {
@@ -101,19 +156,42 @@ func addPlaybook(ansibleProjectPath string) {
 	}
 }
 
-func addVarFiles(ansibleProjectPath string) {
-	vars, err := environment.ViperGetEnvVariableSlice(CliAnsibleVars)
+func addInventory(ansibleProjectPath string) {
+	inventories, err := environment.ViperGetEnvVariableSlice(CliAnsibleInventories)
 
 	if err != nil {
 		log.Fatal("Error")
 	}
 
-	for _, variable := range vars {
-		if err := os.Mkdir(ansibleProjectPath+"/"+variable, os.ModePerm); err != nil {
-			log.Fatal(err)
+	if err := os.Mkdir(ansibleProjectPath+"/inventory", os.ModePerm); err != nil {
+		log.Fatal(err)
+	}
+
+	for _, inventory := range inventories {
+		filePath := filepath.Join(ansibleProjectPath+"/inventory", inventory+".ini")
+
+		file, err := os.Create(filePath)
+		if err != nil {
+			log.Fatal("Error")
 		}
-		filePath := filepath.Join(ansibleProjectPath+"/"+variable, variable+".yml")
-		tmpl, err := template.New(variable).Parse("#add vars here")
+
+		defer func(file *os.File) {
+			err := file.Close()
+			if err != nil {
+				log.Fatal("Error")
+			}
+		}(file)
+	}
+}
+
+func addVarFiles(ansibleProjectPath string, varDir string, vars []string) {
+	if err := os.Mkdir(ansibleProjectPath+"/"+varDir, os.ModePerm); err != nil {
+		log.Fatal(err)
+	}
+
+	for _, groupVar := range vars {
+		filePath := filepath.Join(ansibleProjectPath+"/"+varDir+"/", groupVar+".yml")
+		tmpl, err := template.New(groupVar).Parse("#add vars here")
 		if err != nil {
 			log.Fatal("Error")
 		}
@@ -140,7 +218,11 @@ func addVarFiles(ansibleProjectPath string) {
 
 func init() {
 	rootCmd.AddCommand(createCmd)
-
+	createCmd.Flags().StringVarP(&createPathParameter, "path", "p", "", "Role Path")
+	err := createCmd.MarkFlagRequired("path")
+	if err != nil {
+		return
+	}
 	// Here you will define your flags and configuration settings.
 
 	// Cobra supports Persistent Flags which will work for this command

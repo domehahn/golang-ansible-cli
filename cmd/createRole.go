@@ -13,11 +13,14 @@ import (
 	"text/template"
 )
 
-// createRoleCmd represents the createRole command
+var pathParameter string
+
 var createRoleCmd = &cobra.Command{
-	Use:   "createRole",
-	Short: "Create Ansible Role Structure",
-	Long:  `Create Ansible Role basic structure within the given path.`,
+	Use:     "createRole",
+	Aliases: []string{"role"},
+	Short:   "Create Ansible Role Structure",
+	Long:    `Create Ansible Role basic structure within the given path.`,
+	Args:    cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
 		ansiblePath, err := environment.ViperGetEnvVariable(CliAnsibleDirectory)
 
@@ -25,8 +28,8 @@ var createRoleCmd = &cobra.Command{
 			log.Fatal("Error1")
 		}
 
-		if len(args) >= 1 && args[0] != "" {
-			ansibleProject = args[0]
+		if pathParameter != "" {
+			ansibleProject = pathParameter
 		}
 
 		if err := os.Mkdir(ansiblePath+ansibleProject, os.ModePerm); err != nil {
@@ -107,7 +110,11 @@ func addDirWithEmptyFile(ansibleProjectPath string, directory string, text strin
 
 func init() {
 	rootCmd.AddCommand(createRoleCmd)
-
+	createRoleCmd.Flags().StringVarP(&pathParameter, "path", "p", "", "Role Path")
+	err := createRoleCmd.MarkFlagRequired("path")
+	if err != nil {
+		return
+	}
 	// Here you will define your flags and configuration settings.
 
 	// Cobra supports Persistent Flags which will work for this command
